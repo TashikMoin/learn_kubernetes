@@ -1,0 +1,84 @@
+# Docker installation
+sudo apt-get remove docker docker-engine docker.io containerd runc
+sudo apt-get update
+sudo apt-get install \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo \
+  "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io -y
+
+
+
+
+# Docker Compose (not needed but you can install if you want)
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+
+
+
+
+# Kubernetes cluster (run for both master and worker nodes)
+sudo apt-get update -y && sudo apt-get install -y ebtables
+sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl
+
+sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+sudo systemctl enable kubelet && sudo systemctl start kubelet
+
+sudo swapoff -a
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
+
+sudo nano /etc/docker/daemon.json
+paste following object block inside this daemon.json file,
+{
+"exec-opts": ["native.cgroupdriver=systemd"]
+}
+
+now run the following commands,
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+sudo systemctl restart kubelet
+
+
+
+
+#run below commands at master node only
+sudo kubeadm reset -f
+sudo kubeadm init
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+#set kubeconfig env variable only when you want to interact with the cluster using root user. Either run above 3 commands or use kubeconfig env variable.
+
+sudo nano /etc/kubernetes/manifests/kube-scheduler.yaml
+remove --port 0 line
+sudo nano /etc/kubernetes/manifests/kube-controller-manager.yaml
+remove --port 0 line
+
+
+# adding a cni(container network interface) addon at master node for networking. I am using weave you can use other cni addons as well.
+sudo systemctl restart docker && sudo systemctl restart kubelet
+kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+
+
+#run this commands at worker nodes only
+sudo kubeadm reset -f
+kubeadm join 10.0.0.4:6443 --token ktelpr.31izc02e7gaxpbk6 \
+        --discovery-token-ca-cert-hash sha256:6590681c31aee7a8d8bf9fa24547fa9dfde9fa26d2b08073f19665df8d78976a
+
+
